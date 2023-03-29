@@ -21,48 +21,32 @@
 //! to improve the behavior of the branch-and-bound-MDD solver for travelling
 //! salesman problem with time windows.
 
-use ddo::{FrontierNode, Problem, LoadVars, Variable, VarSet, WidthHeuristic};
+use ddo::{StateRanking, WidthHeuristic, SubProblem};
 
 use crate::state::State;
-use crate::model::TSPTW;
 
 #[derive(Debug, Copy, Clone)]
-pub struct LoadVarsFromDepth{
+pub struct TsptwRanking;
+
+impl StateRanking for TsptwRanking {
+    type State = State;
+
+    fn compare(&self, sa: &Self::State, sb: &Self::State) -> std::cmp::Ordering {
+        sa.depth.cmp(&sb.depth)
+    }
+}
+
+pub struct TsptwWidth {
     nb_vars: usize,
+    factor: usize,
 }
-impl LoadVarsFromDepth {
-    pub fn new(pb: &TSPTW) -> Self {
-        Self {nb_vars: pb.nb_vars()}
+impl TsptwWidth {
+    pub fn new(nb_vars: usize, factor: usize) -> TsptwWidth {
+        TsptwWidth { nb_vars, factor }
     }
 }
-impl LoadVars<State> for LoadVarsFromDepth {
-    #[inline]
-    fn variables(&self, node: &FrontierNode<State>) -> VarSet {
-        let depth   = node.state.depth;
-        let mut ret = VarSet::all(self.nb_vars);
-
-        for i in 0..depth {
-            ret.remove(Variable(i as usize));
-        }
-        ret
-    }
-}
-
-
-#[derive(Debug, Copy, Clone)]
-pub struct IncreasingWithDepth{
-    nb_vars: usize,
-}
-impl IncreasingWithDepth {
-    pub fn new(pb: &TSPTW) -> Self {
-        Self {nb_vars: pb.nb_vars()}
-    }
-}
-impl WidthHeuristic for IncreasingWithDepth {
-    #[inline]
-    fn max_width(&self, free_vars: &VarSet) -> usize {
-        let depth = self.nb_vars - free_vars.len();
-        let factor= 1 + depth;
-        factor * self.nb_vars
+impl WidthHeuristic<State> for TsptwWidth {
+    fn max_width(&self, state: &SubProblem<State>) -> usize {
+        self.nb_vars * (state.depth as usize + 1) * self.factor
     }
 }

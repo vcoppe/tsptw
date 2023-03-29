@@ -22,9 +22,9 @@
 
 use std::{fs::File, path::Path, time::{Duration, Instant}};
 
-use ddo::{Completion, NoDupFrontier, ParallelSolver, Problem, Solution, Solver, TimeBudget, Times, config_builder};
+use ddo::{Completion, ParBarrierSolverFc, Problem, TimeBudget, NoDupFringe, MaxUB, Solver, Solution};
 use structopt::StructOpt;
-use tsptw::{instance::TSPTWInstance, model::TSPTW, relax::TSPTWRelax, heuristics::{LoadVarsFromDepth, IncreasingWithDepth}};
+use tsptw::{instance::TsptwInstance, model::Tsptw, relax::TsptwRelax, heuristics::{TsptwRanking, TsptwWidth}};
 
 /// TSPTW is a solver based on branch-and-bound mdd which solves the travelling
 /// salesman problem with time windows to optimality. 
@@ -38,9 +38,6 @@ enum Args {
     Solve {
         /// The path to the TSP+TW instance that needs to be solved.
         instance: String,
-        /// The verbosity level of what is going to be logged on the console.
-        #[structopt(name="verbosity", short, long)]
-        verbosity: Option<u8>,
         /// The maximum width of an mdd layer. The value you provide to this 
         /// argument will serve as a multiplicator to the default. Hence, 
         /// providing an argument value `width == 5` for an instance having 20 
@@ -70,21 +67,32 @@ fn main() -> Result<(), std::io::Error> {
         Args::PrintHeader => {
                 print_header();
         },
-        Args::Solve{instance, verbosity, width, threads, duration, header} => {
-            let inst     = TSPTWInstance::from(File::open(&instance)?);
-            let pb       = TSPTW::new(inst);
-            let relax    = TSPTWRelax::new(&pb);
-            let mut solvr= mk_solver(&pb, relax, verbosity, width, threads, duration);
+        Args::Solve{instance, width, threads, duration, header} => {
+            let inst     = TsptwInstance::from(File::open(&instance)?);
+            let pb       = Tsptw::new(inst);
+            let relax    = TsptwRelax::new(&pb);
+            let width = TsptwWidth::new(pb.nb_variables(), width.unwrap_or(1));
+            let cutoff = TimeBudget::new(Duration::from_secs(duration.unwrap_or(u64::MAX)));
+            let mut fringe = NoDupFringe::new(MaxUB::new(&TsptwRanking));
+            let mut solver = ParBarrierSolverFc::custom(
+                &pb, 
+                &relax,
+                &TsptwRanking,
+                &width,
+                &cutoff,
+                &mut fringe,
+                threads.unwrap_or(num_cpus::get())
+            );
 
             let start    = Instant::now();
-            let outcome  = solvr.as_mut().maximize();
+            let outcome  = solver.maximize();
             let finish   = Instant::now();
 
             let instance = instance_name(&instance);
-            let nb_vars  = pb.nb_vars();
-            let lb       = objective(solvr.as_ref().best_lower_bound());
-            let ub       = objective(solvr.as_ref().best_upper_bound());
-            let solution = solvr.as_ref().best_solution();
+            let nb_vars  = pb.nb_variables();
+            let lb       = objective(solver.best_lower_bound());
+            let ub       = objective(solver.best_upper_bound());
+            let solution = solver.best_solution();
             let duration = finish - start;
 
             if header {
@@ -140,61 +148,6 @@ fn solution_to_string(nb_vars: usize, solution: Option<Solution>) -> String {
                 txt = format!("{} {}", txt, v);
            }
            txt
-        }
-    }
-}
-
-fn mk_solver<'a>(pb: &'a TSPTW, relax: TSPTWRelax<'a>, 
-                     verbosity: Option<u8>, 
-                     width:     Option<usize>,
-                     threads:   Option<usize>,
-                     duration:  Option<u64>) -> Box<dyn Solver + 'a> {
-    match (&width, &duration) {
-        (Some(w), Some(d)) => {
-            let mdd = config_builder(pb, relax)
-                .with_load_vars(LoadVarsFromDepth::new(pb))
-                .with_max_width(Times(*w, IncreasingWithDepth::new(pb)))
-                .with_cutoff(TimeBudget::new(Duration::from_secs(*d)))
-                .into_deep();
-            let solver = ParallelSolver::new(mdd)
-                .with_verbosity(verbosity.unwrap_or(0))
-                .with_nb_threads(threads.unwrap_or_else(num_cpus::get))
-                .with_frontier(NoDupFrontier::default());
-            Box::new(solver)
-        },
-        (Some(w), None) => {
-            let mdd = config_builder(pb, relax)
-                .with_load_vars(LoadVarsFromDepth::new(pb))
-                .with_max_width(Times(*w, IncreasingWithDepth::new(pb)))
-                .into_deep();
-            let solver = ParallelSolver::new(mdd)
-                .with_verbosity(verbosity.unwrap_or(0))
-                .with_nb_threads(threads.unwrap_or_else(num_cpus::get))
-                .with_frontier(NoDupFrontier::default());
-            Box::new(solver)
-        },
-        (None, Some(d)) => {
-            let mdd = config_builder(pb, relax)
-                .with_load_vars(LoadVarsFromDepth::new(pb))
-                .with_max_width(IncreasingWithDepth::new(pb))
-                .with_cutoff(TimeBudget::new(Duration::from_secs(*d)))
-                .into_deep();
-            let solver = ParallelSolver::new(mdd)
-                .with_verbosity(verbosity.unwrap_or(0))
-                .with_nb_threads(threads.unwrap_or_else(num_cpus::get))
-                .with_frontier(NoDupFrontier::default());
-            Box::new(solver)
-        },
-        (None, None) => {
-            let mdd = config_builder(pb, relax)
-                .with_load_vars(LoadVarsFromDepth::new(pb))
-                .with_max_width(IncreasingWithDepth::new(pb))
-                .into_deep();
-            let solver = ParallelSolver::new(mdd)
-                .with_verbosity(verbosity.unwrap_or(0))
-                .with_nb_threads(threads.unwrap_or_else(num_cpus::get))
-                .with_frontier(NoDupFrontier::default());
-            Box::new(solver)
         }
     }
 }

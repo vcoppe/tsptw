@@ -22,7 +22,7 @@
 
 use std::hash::Hash;
 
-use bitset_fixed::BitSet;
+use smallbitset::Set256;
 
 use crate::instance::TimeWindow;
 
@@ -37,9 +37,9 @@ pub struct State {
     /// The amount of time which has elapsed since the salesman left the depot
     pub elapsed  : ElapsedTime,
     /// These are the nodes he still has to visit
-    pub must_visit : BitSet,
+    pub must_visit : Set256,
     /// These are the nodes he still might visit but is not forced to
-    pub maybe_visit: Option<BitSet>,
+    pub maybe_visit: Option<Set256>,
     /// This is the 'depth' in the tour, the number of cities that have already
     /// been visited
     pub depth: u16
@@ -52,7 +52,7 @@ pub enum Position {
     Node(u16),
     /// Or he can be in one node among a pool of nodes 
     /// (relaxed node == salesman is shroedinger's cat)
-    Virtual(BitSet),
+    Virtual(Set256),
 }
 
 /// This represents a given duration which may either be a fixed amount

@@ -5,11 +5,11 @@ authors = ["Xavier Gillard <xavier.gillard@uclouvain.be>"]
 edition = "2018"
 
 [dependencies]
-ddo              = "0.3.12"
-bitset-fixed     = "0.1.0"
+ddo              = { git = "https://github.com/xgillard/ddo" }
 #
 structopt        = "0.3.21"
 num_cpus         = "1.13.0"
+smallbitset      = "0.6.1"
 
 [profile.release]
 lto              = true

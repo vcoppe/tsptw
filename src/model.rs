@@ -20,42 +20,37 @@
 //! This module contains the definition of the dynamic programming formulation 
 //! of the TSP+TW. (Implementation of the `Problem` trait).
 
-use std::ops::Not;
+use ddo::{Problem, Variable, Decision};
+use smallbitset::Set256;
 
-use bitset_fixed::BitSet;
-use ddo::{BitSetIter, Domain, Problem};
-
-use crate::{instance::TSPTWInstance, state::{ElapsedTime, Position, State}};
+use crate::{instance::TsptwInstance, state::{ElapsedTime, Position, State}};
 
 
-/// This is the structure encapsulating the TSPTW problem.
+/// This is the structure encapsulating the Tsptw problem.
 #[derive(Clone)]
-pub struct TSPTW {
-    pub instance: TSPTWInstance,
+pub struct Tsptw {
+    pub instance: TsptwInstance,
     pub initial : State,
 }
-impl TSPTW {
-    pub fn new(inst: TSPTWInstance) -> Self {
-        let mut state = State {
+impl Tsptw {
+    pub fn new(inst: TsptwInstance) -> Self {
+        let mut must_visit = Set256::default();
+        (1..inst.nb_nodes).for_each(|i| {must_visit.add_inplace(i as usize);});
+        let state = State {
             position  : Position::Node(0),
             elapsed   : ElapsedTime::FixedAmount{duration: 0},
-            must_visit: BitSet::new(inst.nb_nodes as usize).not(),
+            must_visit,
             maybe_visit: None,
             depth : 0
         };
-        state.must_visit.set(0, false);
         Self { instance: inst, initial: state }
     }
 }
 
-const EMPTY       : [isize;0]       = [];
-const EMPTY_DOMAIN: Domain<'static> = Domain::Slice(&EMPTY);
+impl Problem for Tsptw {
+    type State = State;
 
-const TO_DEPOT    : [isize;1]       = [0];
-const GO_TO_DEPOT : Domain<'static> = Domain::Slice(&TO_DEPOT);
-
-impl Problem<State> for TSPTW {
-    fn nb_vars(&self) -> usize {
+    fn nb_variables(&self) -> usize {
         self.instance.nb_nodes as usize
     }
 
@@ -67,48 +62,44 @@ impl Problem<State> for TSPTW {
         0
     }
     
-    fn domain_of<'a>(&self, state: &'a State, _var: ddo::Variable) -> ddo::Domain<'a> {
+    fn for_each_in_domain(&self, variable: Variable, state: &Self::State, f: &mut dyn ddo::DecisionCallback) {
         // When we are at the end of the tour, the only possible destination is
         // to go back to the depot. Any state that violates this constraint is
         // de facto infeasible.
-        if state.depth as usize == self.nb_vars() - 1 {
-            if self.can_move_to(state, 0){
-                return GO_TO_DEPOT;
-            } else {
-                return EMPTY_DOMAIN;
+        if state.depth as usize == self.nb_variables() - 1 {
+            if self.can_move_to(state, 0) {
+                f.apply(Decision { variable, value: 0 })
             }
+            return;
         }
 
-
-        let mut domain     = vec![];
-        for i in BitSetIter::new(&state.must_visit) {
-            if self.can_move_to(state, i) {
-                domain.push(i as isize);
-            } else {
-                return EMPTY_DOMAIN;
+        for i in state.must_visit.iter() {
+            if !self.can_move_to(state, i) {
+                return;
             }
+        }
+        for i in state.must_visit.iter() {
+            f.apply(Decision { variable, value: i as isize })
         }
 
         // Add those that can possibly be visited
         if let Some(maybe_visit) = &state.maybe_visit {
-            for i in BitSetIter::new(maybe_visit) {
+            for i in maybe_visit.iter() {
                 if self.can_move_to(state, i) {
-                    domain.push(i as isize);
+                    f.apply(Decision { variable, value: i as isize })
                 }
             }
         }
-
-        Domain::from(domain)
     }
 
-    fn transition(&self, state: &State, _vars : &ddo::VarSet, d: ddo::Decision) -> State {
+    fn transition(&self, state: &State, d: Decision) -> State {
         // if it is a true move
         let mut remaining = state.must_visit.clone();
-        remaining.set(d.value as usize, false);
+        remaining.remove_inplace(d.value as usize);
         // if it is a possible move
         let mut maybes = state.maybe_visit.clone();
         if let Some(maybe) = maybes.as_mut() {
-            maybe.set(d.value as usize, false);
+            maybe.remove_inplace(d.value as usize);
         }
 
         let time = self.arrival_time(state, d.value as usize);
@@ -122,8 +113,8 @@ impl Problem<State> for TSPTW {
         }
     }
 
-    fn transition_cost(&self, state: &State, _vars : &ddo::VarSet, d: ddo::Decision) -> isize {
-        // TSPTW is a minimization problem but the solver works with a 
+    fn transition_cost(&self, state: &State, d: Decision) -> isize {
+        // Tsptw is a minimization problem but the solver works with a 
         // maximization perspective. So we have to negate the min if we want to
         // yield a lower bound.
         let twj = self.instance.timewindows[d.value as usize];
@@ -145,9 +136,18 @@ impl Problem<State> for TSPTW {
 
         -( (travel_time + waiting_time) as isize)
     }
+
+    fn next_variable(&self, depth: usize, _: &mut dyn Iterator<Item = &Self::State>)
+        -> Option<Variable> {
+        if depth == self.nb_variables() {
+            None
+        } else {
+            Some(Variable(depth))
+        }
+    }
 }
 
-impl TSPTW {
+impl Tsptw {
     pub fn can_move_to(&self, state: &State, j: usize) -> bool {
         let twj         = self.instance.timewindows[j];
         let min_arrival = state.elapsed.add_duration(self.min_distance_to(state, j));
@@ -196,20 +196,20 @@ impl TSPTW {
     }
     fn min_distance_to(&self, state: &State, j: usize) -> usize {
         match &state.position {
-            Position::Node(i) => self.instance.distances[(*i as usize, j)],
+            Position::Node(i) => self.instance.distances[*i as usize][j],
             Position::Virtual(candidates) => 
-                BitSetIter::new(candidates)
-                    .map(|i| self.instance.distances[(i as usize, j as usize)])
+                candidates.iter()
+                    .map(|i| self.instance.distances[i as usize][j as usize])
                     .min()
                     .unwrap()
         }
     }
     fn max_distance_to(&self, state: &State, j: usize) -> usize {
         match &state.position {
-            Position::Node(i) => self.instance.distances[(*i as usize, j)],
+            Position::Node(i) => self.instance.distances[*i as usize][j],
             Position::Virtual(candidates) => 
-                BitSetIter::new(candidates)
-                    .map(|i| self.instance.distances[(i as usize, j as usize)])
+                candidates.iter()
+                    .map(|i| self.instance.distances[i as usize][j as usize])
                     .max()
                     .unwrap()
         }

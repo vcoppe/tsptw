@@ -23,8 +23,6 @@
 
 use std::{f32, fs::File, io::{BufRead, BufReader, Lines, Read}};
 
-use ddo::Matrix;
-
 /// This structure, represents a timewindow. Basically it is nothing but a 
 /// closed time interval
 #[derive(Debug, Copy, Clone)]
@@ -41,30 +39,30 @@ impl TimeWindow {
 
 /// This structure represents the TSP with time window instane.
 #[derive(Clone)]
-pub struct TSPTWInstance {
+pub struct TsptwInstance {
     /// The number of nodes (including depot)
     pub nb_nodes   : u16, 
     /// This is the distance matrix between any two nodes
-    pub distances  : Matrix<usize>,
+    pub distances  : Vec<Vec<usize>>,
     /// This vector encodes the time windows to reach any vertex
     pub timewindows: Vec<TimeWindow>
 }
 
-impl From<File> for TSPTWInstance {
+impl From<File> for TsptwInstance {
     fn from(file: File) -> Self {
         Self::from(BufReader::new(file))
     }
 }
-impl <S: Read> From<BufReader<S>> for TSPTWInstance {
+impl <S: Read> From<BufReader<S>> for TsptwInstance {
     fn from(buf: BufReader<S>) -> Self {
         Self::from(buf.lines())
     }
 }
-impl <B: BufRead> From<Lines<B>> for TSPTWInstance {
+impl <B: BufRead> From<Lines<B>> for TsptwInstance {
     fn from(lines: Lines<B>) -> Self {
         let mut lc         = 0;
         let mut nb_nodes   = 0_u16;
-        let mut distances  = Matrix::new_default(nb_nodes as usize, nb_nodes as usize, 0);
+        let mut distances  = vec![];
         let mut timewindows= vec![];
 
         for line in lines {
@@ -79,7 +77,7 @@ impl <B: BufRead> From<Lines<B>> for TSPTWInstance {
            // First line is the number of nodes
            if lc == 0 { 
                nb_nodes  = line.split_whitespace().next().unwrap().to_string().parse::<u16>().unwrap();
-               distances = Matrix::new_default(nb_nodes as usize, nb_nodes as usize, 0);
+               distances = vec![vec![0; nb_nodes as usize]; nb_nodes as usize];
            }
            // The next 'nb_nodes' lines represent the distances matrix
            else if (1..=nb_nodes).contains(&lc) {
@@ -87,7 +85,7 @@ impl <B: BufRead> From<Lines<B>> for TSPTWInstance {
                for (j, distance) in line.split_whitespace().enumerate() {
                     let distance = distance.to_string().parse::<f32>().unwrap();
                     let distance = (distance * 10000.0) as usize;
-                    distances[(i, j)] = distance;
+                    distances[i][j] = distance;
                }
            }
            // Finally, the last 'nb_nodes' lines impose the time windows constraints
@@ -106,6 +104,6 @@ impl <B: BufRead> From<Lines<B>> for TSPTWInstance {
             lc += 1;
         }
 
-        TSPTWInstance{nb_nodes, distances, timewindows}
+        TsptwInstance{nb_nodes, distances, timewindows}
     }
 }
