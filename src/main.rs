@@ -22,9 +22,9 @@
 
 use std::{fs::File, path::Path, time::{Duration, Instant}};
 
-use ddo::{Completion, ParBarrierSolverFc, Problem, TimeBudget, NoDupFringe, MaxUB, Solver, Solution};
+use ddo::{Completion, Problem, TimeBudget, NoDupFringe, MaxUB, Solver, Solution, ParallelSolver, Mdd, FRONTIER, SimpleBarrier, SimpleDominanceChecker};
 use structopt::StructOpt;
-use tsptw::{instance::TsptwInstance, model::Tsptw, relax::TsptwRelax, heuristics::{TsptwRanking, TsptwWidth}};
+use tsptw::{instance::TsptwInstance, model::Tsptw, relax::TsptwRelax, heuristics::{TsptwRanking, TsptwWidth}, state::State, dominance::TsptwDominance};
 
 /// TSPTW is a solver based on branch-and-bound mdd which solves the travelling
 /// salesman problem with time windows to optimality. 
@@ -74,7 +74,7 @@ fn main() -> Result<(), std::io::Error> {
             let width = TsptwWidth::new(pb.nb_variables(), width.unwrap_or(1));
             let cutoff = TimeBudget::new(Duration::from_secs(duration.unwrap_or(u64::MAX)));
             let mut fringe = NoDupFringe::new(MaxUB::new(&TsptwRanking));
-            let mut solver = ParBarrierSolverFc::custom(
+            let mut solver = ParallelSolver::<State, Mdd<State, FRONTIER>, SimpleBarrier<State>, SimpleDominanceChecker<TsptwDominance>>::custom(
                 &pb, 
                 &relax,
                 &TsptwRanking,

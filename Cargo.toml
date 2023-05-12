@@ -5,7 +5,7 @@ authors = ["Xavier Gillard <xavier.gillard@uclouvain.be>"]
 edition = "2018"
 
 [dependencies]
-ddo              = { git = "https://github.com/xgillard/ddo" }
+ddo              = { git = "https://github.com/vcoppe/ddo.git", branch = "dominance" }
 #
 structopt        = "0.3.21"
 num_cpus         = "1.13.0"
